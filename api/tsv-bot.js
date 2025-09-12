@@ -59,6 +59,7 @@ async function runAssistantWithFileSearch({ client, message }) {
       "Wichtige Links: Mitglied werden https://www.tsv-griedel.de/mitglied-werden | " +
       "Spenden https://www.tsv-griedel.de/spenden | " +
       "Probetraining info@tsv-griedel.de | " +
+      "Floorball https//www.floorballgriedel.de | " +
       "Trainingszeiten https://www.tsv-griedel.de/floorball/trainingszeiten. " +
       "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
     tools: [{ type: "file_search" }],
