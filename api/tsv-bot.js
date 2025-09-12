@@ -56,22 +56,44 @@ res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     const message = (body && body.message) ? String(body.message) : "Hallo!";
 
     // --- OpenAI anfragen ---
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      instructions:
-        "Du bist der Vereinsassistent des TSV 1899 Griedel e.V. " +
-        "Antworte kurz, freundlich und konkret. Nutze diese Infos, wenn passend: " +
-        "Mitglied werden: https://www.tsv-griedel.de/mitglied-werden | " +
-        "Spenden: https://www.tsv-griedel.de/spenden | " +
-        "Probetraining: info@tsv-griedel.de | " +
-        "Trainingszeiten: https://www.tsv-griedel.de/floorball/trainingszeiten. " +
-        "Wenn etwas unklar ist, stelle genau eine Rückfrage.",
-      input: message
-      // (später optional) tools: [{ type: "file_search" }],
-    });
+       const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    const text = response.output_text || "Keine Antwort verfügbar.";
+    async function askOnce() {
+      return client.responses.create({
+        model: "gpt-4.1-mini",
+        // optional: max_output_tokens: 300,
+        instructions:
+          "Du bist der Vereinsassistent des TSV 1899 Griedel e.V. " +
+          "Antworte kurz, freundlich und konkret. Nutze diese Infos, wenn passend: " +
+          "Mitglied werden: https://www.tsv-griedel.de/mitglied-werden | " +
+          "Spenden: https://www.tsv-griedel.de/spenden | " +
+          "Probetraining: info@tsv-griedel.de | " +
+          "Trainingszeiten: https://www.tsv-griedel.de/floorball/trainingszeiten. " +
+          "Wenn etwas unklar ist, stelle genau eine Rückfrage.",
+        input: message
+      });
+    }
+
+    let resp;
+    try {
+      resp = await askOnce();
+    } catch (e) {
+      // 429: einmal kurz retryen, sonst saubere Fehlermeldung zurückgeben
+      if (e?.status === 429) {
+        try { resp = await askOnce(); } catch (e2) {
+          return res.status(503).json({
+            error: "Momentan sind unsere KI-Kontingente erschöpft. Bitte nutze die Links: " +
+                   "Mitglied werden: https://www.tsv-griedel.de/mitglied-werden · " +
+                   "Spenden: https://www.tsv-griedel.de/spenden · " +
+                   "Probetraining: info@tsv-griedel.de"
+          });
+        }
+      } else {
+        throw e; // anderer Fehler → globaler Catch
+      }
+    }
+
+    const text = resp.output_text || "Keine Antwort verfügbar.";
     return res.status(200).json({ reply: text });
   } catch (e) {
     console.error("Server error:", e);
