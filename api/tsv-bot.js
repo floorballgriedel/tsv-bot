@@ -5,9 +5,13 @@ import OpenAI from "openai";
 const ALLOWED_ORIGINS = new Set([
   "https://www.tsv-griedel.de",
   "https://tsv-griedel.de",
+  "http://www.tsv-griedel.de",
+  "http://tsv-griedel.de",
   "https://www.floorballgriedel.de",
   "https://floorballgriedel.de",
-  "http://localhost:3000" // optional fürs lokale Testen
+  "http://www.floorballgriedel.de",
+  "http://floorballgriedel.de",
+  "http://localhost:3000"
 ]);
 
 /** Hilfsfunktion: JSON-Body sicher einlesen (Node Serverless Functions parsen nicht immer automatisch) */
