@@ -14,11 +14,13 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000"
 ]);
 
-/** Hilfsfunktion: JSON-Body sicher einlesen (Node Serverless Functions parsen nicht immer automatisch) */
+/** DEIN Vector Store */
+const VECTOR_STORE_ID = "vs_68c4739fd58481919479080b69780dfa";
+
+/** Body robust einlesen (PowerShell/Serverless-sicher) */
 async function readJsonBody(req) {
   try {
     if (req.body) {
-      // Kann bereits geparst sein (bei manchen Setups), sonst String/Buffer:
       if (typeof req.body === "object") return req.body;
       if (typeof req.body === "string") return JSON.parse(req.body || "{}");
     }
@@ -36,11 +38,10 @@ export default async function handler(req, res) {
   try {
     // --- CORS ---
     const origin = req.headers.origin || "";
-if (ALLOWED_ORIGINS.has(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
-res.setHeader("Vary", "Origin");
-res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
+    if (ALLOWED_ORIGINS.has(origin)) res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
     if (req.method === "OPTIONS") return res.status(200).end();
     if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
@@ -55,32 +56,38 @@ res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     const body = await readJsonBody(req);
     const message = (body && body.message) ? String(body.message) : "Hallo!";
 
-    // --- OpenAI anfragen ---
-       const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    // --- OpenAI-Client ---
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+    // --- EINMALIGE Anfragefunktion (mit File Search + deinem Vector Store) ---
     async function askOnce() {
       return client.responses.create({
         model: "gpt-4.1-mini",
         // optional: max_output_tokens: 300,
         instructions:
           "Du bist der Vereinsassistent des TSV 1899 Griedel e.V. " +
-          "Antworte kurz, freundlich und konkret. Nutze diese Infos, wenn passend: " +
-          "Mitglied werden: https://www.tsv-griedel.de/mitglied-werden | " +
-          "Spenden: https://www.tsv-griedel.de/spenden | " +
-          "Probetraining: info@tsv-griedel.de | " +
-          "Trainingszeiten: https://www.tsv-griedel.de/floorball/trainingszeiten. " +
-          "Wenn etwas unklar ist, stelle genau eine Rückfrage.",
-        input: message
+          "Beantworte Fragen kurz, freundlich und konkret. " +
+          "Nutze die Vereinsdokumente per Datei-Suche; wenn du daraus antwortest, füge am Ende 'Quelle: <Dokumentname>' an. " +
+          "Wichtige Links: Mitglied werden https://www.tsv-griedel.de/mitglied-werden | " +
+          "Spenden https://www.tsv-griedel.de/spenden | " +
+          "Probetraining info@tsv-griedel.de | " +
+          "Trainingszeiten https://www.tsv-griedel.de/floorball/trainingszeiten. " +
+          "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
+        input: message,
+        tools: [{ type: "file_search" }],
+        tool_resources: {
+          file_search: { vector_store_ids: [VECTOR_STORE_ID] }
+        }
       });
     }
 
+    // --- Call + 429-Retry-Fallback ---
     let resp;
     try {
       resp = await askOnce();
     } catch (e) {
-      // 429: einmal kurz retryen, sonst saubere Fehlermeldung zurückgeben
       if (e?.status === 429) {
-        try { resp = await askOnce(); } catch (e2) {
+        try { resp = await askOnce(); } catch {
           return res.status(503).json({
             error: "Momentan sind unsere KI-Kontingente erschöpft. Bitte nutze die Links: " +
                    "Mitglied werden: https://www.tsv-griedel.de/mitglied-werden · " +
@@ -89,12 +96,13 @@ res.setHeader("Access-Control-Allow-Headers", "Content-Type");
           });
         }
       } else {
-        throw e; // anderer Fehler → globaler Catch
+        throw e;
       }
     }
 
     const text = resp.output_text || "Keine Antwort verfügbar.";
     return res.status(200).json({ reply: text });
+
   } catch (e) {
     console.error("Server error:", e);
     return res.status(500).json({ error: "Serverfehler" });
