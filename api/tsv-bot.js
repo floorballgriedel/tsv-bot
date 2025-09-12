@@ -103,8 +103,12 @@ export default async function handler(req, res) {
     const text = resp.output_text || "Keine Antwort verfügbar.";
     return res.status(200).json({ reply: text });
 
-  } catch (e) {
+   } catch (e) {
     console.error("Server error:", e);
-    return res.status(500).json({ error: "Serverfehler" });
+    // >>> DEBUG-ANTWORT: genaue Meldung zurückgeben
+    return res.status(500).json({
+      error: e?.message || String(e),
+      hint: "Siehe Vercel → Project → Deployments → Functions → Logs für Details."
+    });
   }
 }
