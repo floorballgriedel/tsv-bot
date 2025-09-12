@@ -1,7 +1,7 @@
 // api/tsv-bot.js
 import OpenAI from "openai";
 
-/** erlaubte Webseiten, von denen dein WP-Widget die API aufrufen darf */
+/** Erlaubte Ursprünge (WP-Domains) */
 const ALLOWED_ORIGINS = new Set([
   "https://www.tsv-griedel.de",
   "https://tsv-griedel.de",
@@ -14,10 +14,10 @@ const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000"
 ]);
 
-/** DEIN Vector Store */
+/** Dein Vector Store */
 const VECTOR_STORE_ID = "vs_68c4739fd58481919479080b69780dfa";
 
-/** Body robust einlesen (PowerShell/Serverless-sicher) */
+/** Body robust einlesen */
 async function readJsonBody(req) {
   try {
     if (req.body) {
@@ -42,24 +42,24 @@ export default async function handler(req, res) {
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
     if (req.method === "OPTIONS") return res.status(200).end();
+
     if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
 
-    // --- Sicherheit: API-Key vorhanden? ---
+    // --- API-Key vorhanden? ---
     if (!process.env.OPENAI_API_KEY) {
       console.error("OPENAI_API_KEY fehlt");
       return res.status(500).json({ error: "API key missing on server" });
     }
 
-    // --- Request-Body lesen ---
+    // --- Request-Body ---
     const body = await readJsonBody(req);
     const message = (body && body.message) ? String(body.message) : "Hallo!";
 
     // --- OpenAI-Client ---
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // --- EINMALIGE Anfragefunktion (mit File Search + deinem Vector Store) ---
+    // --- Anfragefunktion mit File Search (Responses API) ---
     async function askOnce() {
       return client.responses.create({
         model: "gpt-4.1-mini",
@@ -75,9 +75,12 @@ export default async function handler(req, res) {
           "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
         input: message,
         tools: [{ type: "file_search" }],
-        tool_resources: {
-          file_search: { vector_store_ids: [VECTOR_STORE_ID] }
-        }
+        attachments: [
+          {
+            vector_store_id: VECTOR_STORE_ID,
+            tools: [{ type: "file_search" }]
+          }
+        ]
       });
     }
 
@@ -87,7 +90,8 @@ export default async function handler(req, res) {
       resp = await askOnce();
     } catch (e) {
       if (e?.status === 429) {
-        try { resp = await askOnce(); } catch {
+        try { resp = await askOnce(); }
+        catch {
           return res.status(503).json({
             error: "Momentan sind unsere KI-Kontingente erschöpft. Bitte nutze die Links: " +
                    "Mitglied werden: https://www.tsv-griedel.de/mitglied-werden · " +
@@ -103,12 +107,9 @@ export default async function handler(req, res) {
     const text = resp.output_text || "Keine Antwort verfügbar.";
     return res.status(200).json({ reply: text });
 
-   } catch (e) {
+  } catch (e) {
     console.error("Server error:", e);
-    // >>> DEBUG-ANTWORT: genaue Meldung zurückgeben
-    return res.status(500).json({
-      error: e?.message || String(e),
-      hint: "Siehe Vercel → Project → Deployments → Functions → Logs für Details."
-    });
+    return res.status(500).json({ error: e?.message || String(e) });
   }
 }
+
