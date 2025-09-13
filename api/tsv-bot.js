@@ -60,6 +60,15 @@ async function runAssistantWithFileSearch({ client, message }) {
       "Spenden https://tsv-griedel.de/verein/foerdervereine/handballfoerderverein-des-tsv-1899-griedel-e-v/ | " +
       "Probetraining info@tsv-griedel.de | " +
       "Floorball https//www.floorballgriedel.de | " +
+      // 🔽 NEUE REGELN FÜR SPIELTERMINE
+    "Heutiges Datum (ISO): " + today + ". " +
+    "WENN nach kommenden Spielen/Terminen gefragt wird, DANN: " +
+    "1) Verwende NUR Termine mit Datum ≥ dem heutigen Datum. " +
+    "2) Ignoriere ältere/archivierte Spielberichte oder Saisonartikel mit Daten < heutigem Datum. " +
+    "3) Bevorzuge aktuelle Spielpläne/Kalender gegenüber Nachrichten/Artikeln. " +
+    "4) Wenn keine künftigen Termine gefunden werden, sage das klar und nenne ggf. den Link zum Spielplan. " +
+    "5) Falls unklar ist, welches Team oder welcher Zeitraum gemeint ist, stelle GENAU EINE Rückfrage (z. B. Team/Altersklasse oder Zeitraum). " +
+    // 🔼 Ende der neuen Regeln
       "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
     tools: [{ type: "file_search" }],
     tool_resources: { file_search: { vector_store_ids: [VECTOR_STORE_ID] } }
