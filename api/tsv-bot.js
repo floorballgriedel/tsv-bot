@@ -57,10 +57,9 @@ async function runAssistantWithFileSearch({ client, message }) {
       "Beantworte Fragen kurz, freundlich und konkret. " +
       "Nutze die Vereinsdokumente per Datei-Suche; wenn du daraus antwortest, füge am Ende 'Quelle: <Dokumentname>' an. " +
       "Wichtige Links: Mitglied werden https://www.tsv-griedel.de/mitglied-werden | " +
-      "Spenden https://www.tsv-griedel.de/spenden | " +
+      "Spenden https://tsv-griedel.de/verein/foerdervereine/handballfoerderverein-des-tsv-1899-griedel-e-v/ | " +
       "Probetraining info@tsv-griedel.de | " +
       "Floorball https//www.floorballgriedel.de | " +
-      "Trainingszeiten https://www.tsv-griedel.de/floorball/trainingszeiten. " +
       "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
     tools: [{ type: "file_search" }],
     tool_resources: { file_search: { vector_store_ids: [VECTOR_STORE_ID] } }
