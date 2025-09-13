@@ -36,7 +36,7 @@ async function readJsonBody(req) {
 
 /** Einfaches Polling bis der Assistant-Run fertig ist */
 async function pollRunUntilDone(client, threadId, runId) {
-  for (let i = 0; i < 40; i++) {            // ~30s Timeout
+  for (let i = 0; i < 40; i++) { // ~30s Timeout
     const r = await client.beta.threads.runs.retrieve(threadId, runId);
     if (r.status === "completed") return r;
     if (["failed", "cancelled", "expired"].includes(r.status)) {
@@ -47,50 +47,62 @@ async function pollRunUntilDone(client, threadId, runId) {
   throw new Error("Assistant run timeout");
 }
 
+/** Userfrage mit Sport-Intent taggen (Bias für Retrieval) */
+function tagSportIntent(msg) {
+  const m = (msg || "").toLowerCase();
+  if (m.includes("floorball")) return "[SPORT:FLOORBALL] " + msg;
+  if (m.includes("handball"))  return "[SPORT:HANDBALL] "  + msg;
+  return msg; // unklar -> Assistant fragt nach
+}
+
 /** Einmaliger Assistant-Call mit File Search (Vector Store) */
 async function runAssistantWithFileSearch({ client, message }) {
-  // 1) Assistant ad-hoc erstellen (einfach für den Start)
   const today = new Date().toISOString().slice(0, 10); // z. B. "2025-09-13"
 
-const assistant = await client.beta.assistants.create({
-  model: "gpt-4.1-mini",
-  instructions:
-    "Du bist der Vereinsassistent des TSV 1899 Griedel e.V. " +
-    "Antworte kurz, freundlich und konkret. " +
-    "Nutze die Vereinsdokumente per Datei-Suche; wenn du daraus antwortest, füge am Ende 'Quelle: <Dokumentname>' an. " +
-    "Wichtige Links: Mitglied werden https://www.tsv-griedel.de/mitglied-werden | " +
-    "Spenden https://tsv-griedel.de/verein/foerdervereine/handballfoerderverein-des-tsv-1899-griedel-e-v/ | " +
-    "Probetraining info@tsv-griedel.de | Floorball https//www.floorballgriedel.de. " +
+  // 1) Assistant ad-hoc erstellen
+  const assistant = await client.beta.assistants.create({
+    model: "gpt-4.1-mini",
+    instructions:
+      "Du bist der Vereinsassistent des TSV 1899 Griedel e.V. " +
+      "Antworte kurz, freundlich und konkret. " +
+      "Nutze die Vereinsdokumente per Datei-Suche; wenn du daraus antwortest, füge am Ende 'Quelle: <Dokumentname>' an. " +
+      "Wichtige Links: Mitglied werden https://www.tsv-griedel.de/mitglied-werden | " +
+      "Spenden https://tsv-griedel.de/verein/foerdervereine/handballfoerderverein-des-tsv-1899-griedel-e-v/ | " +
+      "Probetraining info@tsv-griedel.de | Floorball https://www.floorballgriedel.de. " +
 
-    // ---- Datum & Terminlogik ----
-    "Heutiges Datum (ISO): " + today + ". " +
-    "Wenn nach kommenden Spielen/Terminen gefragt wird: " +
-    "1) Verwende ausschließlich Termine mit Datum ≥ heutigem Datum. " +
-    "2) Ignoriere ältere/archivierte Spielberichte oder Saisonartikel mit Datum < heutigem Datum. " +
-    "3) Bevorzuge IMMER die offiziellen Saison-Spielpläne: " +
-    "   - 'Floorball_Saison_2025_2026.pdf' für Floorball " +
-    "   - 'Handball_Saison_2025_2026.pdf' für Handball. " +
-    "4) Bei Widersprüchen nutze die Daten aus diesen Saison-Dateien, NICHT aus Artikeln. " +
-    "5) Wenn keine zukünftigen Termine gefunden werden, sage das klar und verweise auf den jeweiligen Spielplan-Link. " +
-    "6) Falls unklar (Team/Altersklasse/Zeitraum), stelle genau EINE präzise Rückfrage. " +
+      // ---- Datum & Terminlogik ----
+      ("Heutiges Datum (ISO): " + today + ". ") +
+      "Wenn nach kommenden Spielen/Terminen gefragt wird: " +
+      "1) Verwende ausschließlich Termine mit Datum ≥ heutigem Datum. " +
+      "2) Ignoriere ältere/archivierte Spielberichte/Artikel mit Datum < heutigem Datum. " +
+      "3) Bevorzuge IMMER die offiziellen Saison-Spielpläne: " +
+      "   - 'Floorball_Saison_2025_2026.pdf' (Floorball) " +
+      "   - 'Handball_Saison_2025_2026.pdf' (Handball). " +
+      "4) Bei Widersprüchen zählen nur die Angaben aus diesen Saison-Dateien. " +
+      "5) Wenn keine zukünftigen Termine gefunden werden, sag das klar und verweise auf den passenden Spielplan. " +
 
-    // ---- Sportartspezifisch ----
-    "Handball: Nutze nach Möglichkeit Team- und Ligenbezeichnungen (z. B. 1. Herren, 1. Damen, Jugendstaffeln). " +
-    "Floorball: Nutze Altersklassen (U7/U9/U11/U13/U15/U17) und weise auf Heim/Auswärts sowie Turnierformate hin. " +
+      // ---- HARTE SPORT-FILTERREGEL ----
+      "SPORT-FILTER: " +
+      "Wenn die Nutzerfrage 'Handball' erwähnt ODER mit '[SPORT:HANDBALL]' beginnt, verwende ausschließlich Quellen, " +
+      "deren Dateiname 'Handball' enthält ODER die Datei 'Handball_Saison_2025_2026.pdf'. " +
+      "Wenn die Nutzerfrage 'Floorball' erwähnt ODER mit '[SPORT:FLOORBALL]' beginnt, verwende ausschließlich Quellen, " +
+      "deren Dateiname 'Floorball' enthält ODER die Datei 'Floorball_Saison_2025_2026.pdf'. " +
+      "Wenn die Sportart unklar ist, stelle GENAU EINE Rückfrage: 'Meinst du Handball oder Floorball?'. " +
 
-    // ---- Ausgabeformat ----
-    "Formatiere Ausgaben zu Terminen als Liste mit maximal 5 Einträgen, jeder Eintrag als: " +
-    "• <Datum (TT.MM.JJJJ), Uhrzeit> – <Team> vs. <Gegner> – <Ort/Spielstätte> – <Wettbewerb/Liga>. " +
-    "Wenn Uhrzeit/Ort fehlen, formuliere das explizit. " +
+      // ---- Ausgabeformat ----
+      "Formatiere Termine als Liste mit max. 5 Einträgen: " +
+      "• TT.MM.JJJJ, HH:MM – <Team> vs. <Gegner> – <Ort/Spielstätte> – <Wettbewerb>. " +
+      "Wenn Uhrzeit/Ort fehlen, erwähne das explizit. " +
 
-    // ---- Allgemein ----
-    "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
-  tools: [{ type: "file_search" }],
-  tool_resources: { file_search: { vector_store_ids: [VECTOR_STORE_ID] } }
-});
-  // 2) Thread mit User-Nachricht
+      // ---- Allgemein ----
+      "Wenn etwas unklar ist, stelle genau EINE Rückfrage.",
+    tools: [{ type: "file_search" }],
+    tool_resources: { file_search: { vector_store_ids: [VECTOR_STORE_ID] } }
+  });
+
+  // 2) Thread mit getaggter User-Nachricht
   const thread = await client.beta.threads.create({
-    messages: [{ role: "user", content: message }]
+    messages: [{ role: "user", content: tagSportIntent(message) }]
   });
 
   // 3) Run starten
